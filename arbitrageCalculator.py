@@ -2,7 +2,6 @@ import os
 import requests
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
-from datetime import datetime, timezone
 
 
 class APIClient:
@@ -66,142 +65,9 @@ class APIClient:
             raise Exception(f"Network error: {e}") from e
 
 
-def probability_to_american_odds(prob):
-    """Convert decimal probability to American odds format"""
-    if prob >= 0.5:
-        # Negative odds (favorite)
-        return -(prob * 100) / (1 - prob)
-    else:
-        # Positive odds (underdog)
-        return ((1 - prob) * 100) / prob
-
-
-def filterFutureEvents(kalshi_data):
-    """Remove events that have already started or are ongoing"""
-    current_time = datetime.now(timezone.utc)
-    future_games = []
-
-    for game in kalshi_data.get('games', []):
-        try:
-            scheduled_str = game.get('scheduled', '')
-            scheduled_time = datetime.fromisoformat(scheduled_str.replace('Z', '+00:00'))
-            if scheduled_time > current_time:
-                future_games.append(game)
-        except (ValueError, AttributeError):
-            # Skip games with invalid or missing scheduled time
-            continue
-
-    return future_games
-
-
-def getKalshiOdds():
-    """Fetch Kalshi market data from Parse.bot API"""
-    load_dotenv()
-    api_key = os.getenv('PARSEBOT_API_KEY')
-
-    if not api_key:
-        raise Exception("PARSEBOT_API_KEY not found in .env file")
-
-    url = 'https://api.parse.bot/scraper/8f119691-6b3a-4dc3-ad7a-d67893c85b9c/fetch_all_odds'
-    payload = {}
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-KEY": api_key
-    }
-
-    try:
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        raise Exception(f"Failed to fetch Kalshi data: {e}") from e
-
-
-def matchKalshiToOddsAPI(kalshi_game, odds_api_event):
-    """Determine if a Kalshi game matches an Odds API event based on team names"""
-    # Extract Kalshi teams
-    kalshi_teams = {team.lower().strip() for team in kalshi_game.get('teams', [])}
-    print(f"Kalshi Teams: {kalshi_teams}")
-    # Extract Odds API teams
-    api_teams = {
-        odds_api_event.get('home_team', '').lower().strip(),
-        odds_api_event.get('away_team', '').lower().strip()
-    }
-    print(f"API Teams: {api_teams}")
-    print()
-    # Match if both team sets are equal (order-independent)
-    return kalshi_teams == api_teams and len(kalshi_teams) == 2
-
-
-def transformKalshiToOddsDict(game):
-    """Transform Kalshi game data into oddsDict format"""
-    oddsDict = {
-        'h2h': {},
-        'spreads': {},
-        'totals': {}
-    }
-
-    # Process head-to-head (moneyline) markets
-    for h2h_outcome in game.get('head_to_head', []):
-        outcome_name = h2h_outcome.get('outcome', '')
-        yes_prob = h2h_outcome.get('yes_prob')
-
-        if outcome_name and yes_prob is not None and 0 <= yes_prob <= 1:
-            odds = probability_to_american_odds(yes_prob)
-            if outcome_name not in oddsDict['h2h']:
-                oddsDict['h2h'][outcome_name] = []
-            oddsDict['h2h'][outcome_name].append(('Kalshi', odds))
-
-    # Process spreads
-    for spread in game.get('spreads', []):
-        team = spread.get('team', '')
-        line = spread.get('line')
-        yes_prob = spread.get('yes_prob')
-
-        if team and line is not None and yes_prob is not None and 0 <= yes_prob <= 1:
-            odds = probability_to_american_odds(yes_prob)
-            if team not in oddsDict['spreads']:
-                oddsDict['spreads'][team] = []
-            oddsDict['spreads'][team].append(('Kalshi', odds, float(line)))
-
-    # Process totals (over/under)
-    for total in game.get('totals', []):
-        line = total.get('line')
-        over_prob = total.get('over_prob')
-        under_prob = total.get('under_prob')
-
-        if line is not None:
-            line_float = float(line)
-
-            # Process Over
-            if over_prob is not None and 0 <= over_prob <= 1:
-                over_odds = probability_to_american_odds(over_prob)
-                if 'Over' not in oddsDict['totals']:
-                    oddsDict['totals']['Over'] = []
-                oddsDict['totals']['Over'].append(('Kalshi', over_odds, line_float))
-
-            # Process Under
-            if under_prob is not None and 0 <= under_prob <= 1:
-                under_odds = probability_to_american_odds(under_prob)
-                if 'Under' not in oddsDict['totals']:
-                    oddsDict['totals']['Under'] = []
-                oddsDict['totals']['Under'].append(('Kalshi', under_odds, line_float))
-
-    return oddsDict
-
-
-def mergeOddsDicts(target, source):
-    """Merge Kalshi odds into existing oddsDict"""
-    for market_key in ['h2h', 'spreads', 'totals']:
-        if market_key in source:
-            for outcome, odds_list in source[market_key].items():
-                if outcome not in target[market_key]:
-                    target[market_key][outcome] = []
-                target[market_key][outcome].extend(odds_list)
-
+        
 
 def scanAllGames():
-    allBookmakers=set()
     client=APIClient()
     sports=client.getSports()
     active_sports=[
@@ -210,16 +76,6 @@ def scanAllGames():
     ]
 
     all_opportunities = []
-
-    # Fetch Kalshi data once and filter for future events
-    try:
-        kalshi_data = getKalshiOdds()
-        future_kalshi_games = filterFutureEvents(kalshi_data)
-        matched_tickers = set()
-    except Exception as e:
-        print(f"Warning: Failed to fetch Kalshi data: {e}")
-        future_kalshi_games = []
-        matched_tickers = set()
 
     for sport in active_sports:
         key=sport['key']
@@ -234,7 +90,6 @@ def scanAllGames():
             }
 
             for bookmaker in event['bookmakers']:
-                allBookmakers.add(bookmaker['title'])
                 for market in bookmaker['markets']:
                     market_key = market['key']
 
@@ -258,21 +113,6 @@ def scanAllGames():
                 'away_team': event['away_team'],
                 'sport': key
             }
-
-            # Try to find matching Kalshi game and merge data
-            matching_kalshi = None
-            for kalshi_game in future_kalshi_games:
-                
-                if matchKalshiToOddsAPI(kalshi_game, event):
-                    matching_kalshi = kalshi_game
-                    break
-
-            # If match found, merge Kalshi odds
-            if matching_kalshi:
-                kalshi_odds = transformKalshiToOddsDict(matching_kalshi)
-                mergeOddsDicts(oddsDict, kalshi_odds)
-                allBookmakers.add('Kalshi')
-                matched_tickers.add(matching_kalshi.get('event_ticker', ''))
 
             for market_key, market_data in oddsDict.items():
                 result = analyzeMarketArbitrage(market_data, market_key)
@@ -313,11 +153,6 @@ def scanAllGames():
             print(f"  {outcome}: {details['odds']} at {details['bookmaker']} | Bet: {details['bet_percentage']:.2f}% (${details['bet_amount_1000']:.2f})")
         print(f"{'-'*70}\n")
 
-    print("All Bookmakers Encountered:")
-    for bookmaker in allBookmakers:
-        print(bookmaker)
-    
-    
     return top_3
 
 
@@ -446,22 +281,5 @@ class ArbitrageAgent():
     
     
 
-def testNewAPI():
-    load_dotenv()
-    api_key = os.getenv('PARSEBOT_API_KEY')
-    
-    session = requests.Session()
-    url = 'https://api.parse.bot/scraper/8f119691-6b3a-4dc3-ad7a-d67893c85b9c/fetch_all_odds'
-    payload={}
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-KEY": api_key
-    }
-
-    
-    resp=requests.post(url,json=payload,headers=headers)
-    print(resp.json())
-
 if __name__ == "__main__":
     scanAllGames()
-    #testNewAPI()
