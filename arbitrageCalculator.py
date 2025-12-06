@@ -185,7 +185,8 @@ def scanAllGames():
                             'bookmaker': result['bookmakers'][i],
                             'odds': result['odds'][i],
                             'bet_percentage': result['bet_percentages'][i],
-                            'bet_amount_1000': result['bet_amounts_1000'][i]
+                            'bet_amount_1000': result['bet_amounts_1000'][i],
+                            'roi': result['outcome_rois'][i]
                         }
 
                     opportunity = {
@@ -213,7 +214,7 @@ def scanAllGames():
         print(f"Market: {opp['market']}")
         print(f"Bet Distribution:")
         for outcome, details in opp['opportunities'].items():
-            print(f"  {outcome}: {details['odds']} at {details['bookmaker']} | Bet: {details['bet_percentage']:.2f}% (${details['bet_amount_1000']:.2f})")
+            print(f"  {outcome}: {details['odds']} at {details['bookmaker']} | Bet: {details['bet_percentage']:.1f}% (${details['bet_amount_1000']:.0f}) | ROI: {details['roi']:.2f}%")
         print(f"{'-'*70}\n")
 
     return top_3
@@ -260,7 +261,8 @@ def analyzeMarketArbitrage(market_data, market_key):
                         'odds': best_odds,
                         'outcomes': outcome_names,
                         'bet_percentages': arb_result['bet_percentages'],
-                        'bet_amounts_1000': arb_result['bet_amounts_1000']
+                        'bet_amounts_1000': arb_result['bet_amounts_1000'],
+                        'outcome_rois': arb_result['outcome_rois']
                     }
 
         return best_result
@@ -288,7 +290,8 @@ def analyzeMarketArbitrage(market_data, market_key):
             'odds': best_odds,
             'outcomes': outcome_names,
             'bet_percentages': arb_result['bet_percentages'],
-            'bet_amounts_1000': arb_result['bet_amounts_1000']
+            'bet_amounts_1000': arb_result['bet_amounts_1000'],
+            'outcome_rois': arb_result['outcome_rois']
         }
 
 
@@ -324,6 +327,15 @@ def findBestArbitrageForEvent(oddsDict, event_info):
     }
 
 
+def round_to_nice(amount):
+    """Round to nearest nice number (ending in 0, 25, 50, 75)."""
+    nice_endings = [0, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90]
+    base = int(amount // 100) * 100
+    remainder = amount - base
+    closest = min(nice_endings, key=lambda x: abs(remainder - x))
+    return base + closest
+
+
 class ArbitrageAgent():
     def findArbitrage(odds1,odds2,odds3=None):
         def american_to_decimal(american_odds):
@@ -335,11 +347,15 @@ class ArbitrageAgent():
         inverse_sum=sum(1/odds for odds in decimal_odds)
         roi=(1 - inverse_sum) * 100
         bet_percentages=[(1/odds) / inverse_sum * 100 for odds in decimal_odds]
-        bet_amounts_1000=[pct * 10 for pct in bet_percentages]
+        bet_amounts_1000=[round_to_nice(pct * 10) for pct in bet_percentages]
+        total_bankroll = sum(bet_amounts_1000)
+        outcome_rois = [(amt * dec_odds - total_bankroll) / total_bankroll * 100
+                        for amt, dec_odds in zip(bet_amounts_1000, decimal_odds)]
         return {
             'roi': roi,
             'bet_percentages': bet_percentages,
-            'bet_amounts_1000': bet_amounts_1000
+            'bet_amounts_1000': bet_amounts_1000,
+            'outcome_rois': outcome_rois
         }
     
     
