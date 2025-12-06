@@ -2,7 +2,6 @@ import os
 import requests
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
-from datetime import datetime, timedelta, timezone
 
 
 class APIClient:
@@ -66,55 +65,7 @@ class APIClient:
             raise Exception(f"Network error: {e}") from e
 
 
-def parse_and_filter_event_time(commence_time_iso: str, minutes_buffer: int = 10):
-    """
-    Parse ISO 8601 datetime string and determine if event is still valid for betting.
-
-    Filters out:
-    - Games that have already started
-    - Games starting within the next N minutes (buffer for order placement)
-
-    Args:
-        commence_time_iso: ISO 8601 formatted datetime from API (e.g., "2025-12-01T19:30:00Z")
-        minutes_buffer: Minutes to exclude before game start (default 10 minutes)
-
-    Returns:
-        Tuple of (is_valid: bool, formatted_time: str)
-        - is_valid: True if event is in the future and beyond buffer window
-        - formatted_time: Event time in local timezone, 12-hour format with date
-    """
-    try:
-        # Handle missing data
-        if not commence_time_iso:
-            return False, "Time unavailable"
-
-        # Normalize ISO 8601 format (handle both 'Z' and explicit +00:00)
-        normalized = commence_time_iso.replace('Z', '+00:00')
-
-        # Parse UTC timestamp
-        utc_time = datetime.fromisoformat(normalized)
-
-        # Convert to local system timezone
-        local_time = utc_time.astimezone()
-
-        # Get current time with buffer applied
-        now = datetime.now(timezone.utc).astimezone()
-        buffer_time = now + timedelta(minutes=minutes_buffer)
-
-        # Check if event is valid (hasn't started and beyond buffer)
-        is_valid = local_time > buffer_time
-
-        # Format time: "2025-12-01 07:30 PM"
-        formatted_time = local_time.strftime("%Y-%m-%d %I:%M %p")
-
-        return is_valid, formatted_time
-
-    except (ValueError, AttributeError, TypeError) as e:
-        # If parsing fails, mark as invalid
-        return False, "Time unavailable"
-
-
-
+        
 
 def scanAllGames():
     client=APIClient()
@@ -157,23 +108,11 @@ def scanAllGames():
                             else:
                                 oddsDict[market_key][outcome_name].append((bookmaker['title'], odds))
 
-            # Extract commence_time from API response
-            commence_time_iso = event.get('commence_time', None)
-
-            # Parse, filter, and format the time
-            is_valid_time, formatted_time = parse_and_filter_event_time(commence_time_iso)
-
             event_info = {
                 'home_team': event['home_team'],
                 'away_team': event['away_team'],
-                'sport': key,
-                'commence_time': formatted_time,
-                'is_valid_time': is_valid_time
+                'sport': key
             }
-
-            # Skip events that don't meet time filtering criteria
-            if not event_info['is_valid_time']:
-                continue
 
             for market_key, market_data in oddsDict.items():
                 result = analyzeMarketArbitrage(market_data, market_key)
@@ -193,7 +132,6 @@ def scanAllGames():
                         'sport': event_info['sport'],
                         'market': market_key,
                         'roi': result['roi'],
-                        'commence_time': event_info['commence_time'],
                         'opportunities': opportunities_dict
                     }
                     all_opportunities.append(opportunity)
@@ -208,7 +146,6 @@ def scanAllGames():
     for rank, opp in enumerate(top_3, 1):
         print(f"#{rank} - ROI: {opp['roi']:.2f}%")
         print(f"Event: {opp['event']}")
-        print(f"Starts: {opp['commence_time']}")
         print(f"Sport: {opp['sport']}")
         print(f"Market: {opp['market']}")
         print(f"Bet Distribution:")
