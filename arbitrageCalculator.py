@@ -1,4 +1,5 @@
 import os
+import sys
 import requests
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
@@ -173,6 +174,13 @@ def parse_and_filter_event_time(commence_time_iso: str, minutes_buffer: int = 10
 
 
 def scanAllGames():
+    while True:
+        numOpps=input('Enter the number of arbitrage opportunities you want to see: ')
+        if numOpps.isdigit() and int(numOpps) > 0:
+            break
+        else:
+            print('Invalid input. Please enter a positive integer.')
+    numOpps=int(numOpps)
     client=APIClient()
     sports=client.getSports()
     active_sports=[
@@ -314,7 +322,7 @@ def scanAllGames():
                 for market_key, market_data in oddsDict.items():
                     result = analyzeMarketArbitrage(market_data, market_key)
 
-                    if result:
+                    if result and result['roi'] > 0:
                         opportunities_dict = {}
                         for i, outcome in enumerate(result['outcomes']):
                             opportunities_dict[outcome] = {
@@ -338,10 +346,17 @@ def scanAllGames():
         print(f"\n[!] API keys exhausted. Stopping scan and showing results found so far...")
 
     all_opportunities.sort(key=lambda x: x['roi'], reverse=True)
-    top_3 = all_opportunities[:3]
+    if numOpps > len(all_opportunities):
+        print(f"Only {len(all_opportunities)} opportunities found. Showing all available.")
+        numOpps = len(all_opportunities)
+    
+    top_3 = all_opportunities[:numOpps]
 
     print(f"\n{'='*70}")
-    print(f"TOP 3 ARBITRAGE OPPORTUNITIES (from {len(all_opportunities)} total)")
+    if numOpps == 1:
+        print(f"TOP {numOpps} ARBITRAGE OPPORTUNITY (from {len(all_opportunities)} total)")
+    else:
+        print(f"TOP {numOpps} ARBITRAGE OPPORTUNITIES (from {len(all_opportunities)} total)")
     print(f"{'='*70}\n")
 
     for rank, opp in enumerate(top_3, 1):
