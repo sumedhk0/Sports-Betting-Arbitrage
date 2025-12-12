@@ -4,6 +4,7 @@ import requests
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
+import questionary
 
 class APIKeysExhaustedException(Exception):
     """Raised when all API keys have been exhausted"""
@@ -181,6 +182,48 @@ def scanAllGames():
         else:
             print('Invalid input. Please enter a positive integer.')
     numOpps=int(numOpps)
+    
+    bookmakers=[
+        'BetOnline.ag',
+        'BetMGM',
+        'BetRivers',
+        'BetUS',
+        'Bovada',
+        'DraftKings',
+        'FanDuel',
+        'LowVig.ag',
+        'MyBookie.ag'
+    ]
+    
+    selection_type = questionary.select(
+        'Bookmaker selection:',
+        choices=['All bookmakers', 'Custom selection']
+    ).ask()
+
+    if selection_type is None:
+        print('Selection cancelled.')
+        sys.exit(0)
+
+    if selection_type == 'All bookmakers':
+        selected = bookmakers
+    else:
+        while True:
+            selected = questionary.checkbox(
+                'Select bookmakers (minimum 2, press "a" to toggle all):',
+                choices=bookmakers
+            ).ask()
+
+            if selected is None:
+                print('Selection cancelled.')
+                sys.exit(0)
+
+            if len(selected) < 2:
+                print('Please select at least 2 bookmakers.')
+                continue
+            break
+    
+    
+    
     client=APIClient()
     sports=client.getSports()
     active_sports=[
@@ -318,10 +361,16 @@ def scanAllGames():
                 # Skip events that don't meet time filtering criteria
                 if not event_info['is_valid_time']:
                     continue
-
+                flag=True
                 for market_key, market_data in oddsDict.items():
                     result = analyzeMarketArbitrage(market_data, market_key)
-
+                    if result:
+                        for bookie in result['bookmakers']:
+                            if bookie not in selected:
+                                flag=False
+                    if not flag:
+                        flag=True
+                        continue
                     if result and result['roi'] > 0:
                         opportunities_dict = {}
                         for i, outcome in enumerate(result['outcomes']):
