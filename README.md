@@ -10,4 +10,7 @@ Add the following line (without the parentheses):
 
 API_KEY=(your API key)
 
+If you want to use multiple API keys, add the following instead:
+API_KEYS=(your API keys, comma separated, one 1 line, no quotes)
+
 Run and get your arbitrage opportunities!
