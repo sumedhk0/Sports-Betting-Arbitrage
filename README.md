@@ -12,6 +12,6 @@ API_KEY=(your API key)
 
 If you want to use multiple API keys for more searches, add the following instead:
 
-API_KEYS=(your API keys, comma separated, no spaces, one 1 line, no quotes)
+API_KEYS=(your API keys, comma separated, no spaces, 1 line, no quotes)
 
 Run and get your arbitrage opportunities!
