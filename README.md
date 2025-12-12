@@ -10,12 +10,23 @@ Go to https://the-odds-api.com/#get-access and get your API key. The free tier i
 
 ### 3. Add your API key(s):
 Create a new file called .env in the project.
+
+If you only have 1 API key:
 Add the following line (without the parentheses):
 
 `API_KEY=(your API key)`
 
-If you want to use multiple API keys for more searches, add the following instead:
+Example:
+
+`API_KEY=key`
+
+If you have multiple API keys:
+Add the following line instead (without the parentheses):
 
 `API_KEYS=(your API keys, comma separated, no spaces, 1 line, no quotes)`
+
+Example:
+
+`API_KEYS=key1,key2,key3,key4`
 
 ### 4. Run the program in the terminal and get your arbitrage opportunities!
