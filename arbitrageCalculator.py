@@ -29,7 +29,8 @@ class APIClient:
             self.api_keys = [single_key] if single_key else []
 
         if not self.api_keys:
-            raise Exception("No API keys found. Set API_KEYS or API_KEY in .env file.")
+            print("No API keys found. Set API_KEYS or API_KEY in .env file.")
+            sys.exit(1)
 
         self.current_key_index = 0
         self.session = requests.Session()
