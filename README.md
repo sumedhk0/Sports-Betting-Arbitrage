@@ -25,7 +25,18 @@ API_KEY=your_api_key_here
 API_KEYS=key1,key2,key3
 ```
 
-### 4. Run the program
+### 4. (OPTIONAL) Add Email Functionality
+In the `.env` file, set the following variables:
+```bash
+SMTP_HOST=SMTP_HOST (look online to see what to put based on outlook, gmail, etc.)
+SMTP_PORT=587
+SMTP_USER=sending_email_address
+SMTP_PASSWORD=sending_email_address_password
+ALERT_EMAIL=receiving_email_address
+MIN_ROI_ALERT=minimum_roi_to_display_in_email
+```
+
+### 5. Run the program
 
 Choose one of the following options:
 

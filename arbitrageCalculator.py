@@ -1,6 +1,9 @@
 import os
 import sys
 import requests
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
@@ -438,6 +441,10 @@ def scanAllGames():
             print(f"  {outcome}: {details['odds']} at {details['bookmaker']} | Bet: {details['bet_percentage']:.2f}% (${details['bet_amount_1000']:.2f})")
         print(f"{'-'*70}\n")
 
+    # Send email alert for high-ROI opportunities
+    alerter = EmailAlerter()
+    alerter.send_alert(all_opportunities)
+
     return top_3
 
 def analyzePlayerPropArbitrage(player_props):
@@ -612,8 +619,62 @@ class ArbitrageAgent():
             'bet_percentages': bet_percentages,
             'bet_amounts_1000': bet_amounts_1000
         }
-    
-    
+
+
+class EmailAlerter:
+    def __init__(self):
+        load_dotenv()
+        self.smtp_host = os.getenv('SMTP_HOST', 'smtp.gmail.com')
+        self.smtp_port = int(os.getenv('SMTP_PORT', 587))
+        self.smtp_user = os.getenv('SMTP_USER')
+        self.smtp_password = os.getenv('SMTP_PASSWORD')
+        self.alert_email = os.getenv('ALERT_EMAIL')
+        self.min_roi = float(os.getenv('MIN_ROI_ALERT', 1.0))
+        self.enabled = all([self.smtp_user, self.smtp_password, self.alert_email])
+
+    def send_alert(self, opportunities):
+        """Send email alert for high-ROI opportunities"""
+        if not self.enabled:
+            print("[Email] Alerts disabled (missing SMTP credentials)")
+            return
+
+        high_roi = [o for o in opportunities if o['roi'] >= self.min_roi]
+        if not high_roi:
+            print(f"[Email] No opportunities above {self.min_roi}% ROI threshold")
+            return
+
+        body = self._format_opportunities(high_roi)
+
+        msg = MIMEMultipart()
+        msg['From'] = self.smtp_user
+        msg['To'] = self.alert_email
+        msg['Subject'] = f"Arbitrage Alert: {len(high_roi)} Opportunities Found!"
+        msg.attach(MIMEText(body, 'plain'))
+
+        try:
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(msg)
+            print(f"[Email] Alert sent for {len(high_roi)} opportunities")
+        except Exception as e:
+            print(f"[Email] Failed to send alert: {e}")
+
+    def _format_opportunities(self, opportunities):
+        """Format opportunities as readable text"""
+        lines = ["ARBITRAGE OPPORTUNITIES", "=" * 50, ""]
+        for i, opp in enumerate(opportunities, 1):
+            lines.append(f"#{i} - ROI: {opp['roi']:.2f}%")
+            lines.append(f"Event: {opp['event']}")
+            lines.append(f"Sport: {opp['sport']}")
+            lines.append(f"Market: {opp['market']}")
+            lines.append(f"Starts: {opp['commence_time']}")
+            lines.append("Bets:")
+            for outcome, details in opp['opportunities'].items():
+                lines.append(f"  {outcome}: {details['odds']} at {details['bookmaker']} | Bet: {details['bet_percentage']:.2f}% (${details['bet_amount_1000']:.2f})")
+            lines.append("-" * 50)
+        return "\n".join(lines)
+
 
 if __name__ == "__main__":
     scanAllGames()
