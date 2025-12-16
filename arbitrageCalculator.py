@@ -17,6 +17,18 @@ iceHockeyMarkets='player_points,player_power_play_points,player_assists,player_b
 aussieRulesMarkets='player_disposals,player_afl_fantasy_points'
 soccerMarkets='player_shots_on_target,player_shots,player_assists'
 
+BOOKMAKER_API_KEYS = {
+    'BetOnline.ag': 'betonlineag',
+    'BetMGM': 'betmgm',
+    'BetRivers': 'betrivers',
+    'BetUS': 'betus',
+    'Bovada': 'bovada',
+    'DraftKings': 'draftkings',
+    'FanDuel': 'fanduel',
+    'LowVig.ag': 'lowvig',
+    'MyBookie.ag': 'mybookieag'
+}
+
 class APIClient:
     def __init__(self):
         load_dotenv()
@@ -79,13 +91,16 @@ class APIClient:
         response = self._make_request(endpoint, params)
         return response.json()
 
-    def getEventOdds(self, sportKey, eventId):
+    def getEventOdds(self, sportKey, eventId, bookmakers=None):
         endpoint = f'{self.baseURL}sports/{sportKey}/events/{eventId}/odds'
         params = {
-            'regions': 'us',
             'markets': '',
             'oddsFormat': 'american'
         }
+        if bookmakers:
+            params['bookmakers'] = bookmakers
+        else:
+            params['regions'] = 'us'
         if sportKey == 'americanfootball_nfl' or sportKey == 'americanfootball_ncaaf' or sportKey == 'americanfootball_cfl':
             params['markets'] = americanFootballMarkets
         elif sportKey == 'basketball_nba' or sportKey == 'basketball_ncaab' or sportKey == 'basketball_wbna':
@@ -113,14 +128,18 @@ class APIClient:
         sport_key: str,
         regions: str = 'us',
         markets: str = 'h2h,spreads,totals',
-        odds_format: str = 'american'
+        odds_format: str = 'american',
+        bookmakers: str = None
     ):
         endpoint = f'{self.baseURL}sports/{sport_key}/odds/'
         params = {
-            'regions': regions,
             'markets': markets,
             'oddsFormat': odds_format
         }
+        if bookmakers:
+            params['bookmakers'] = bookmakers
+        else:
+            params['regions'] = regions
         response = self._make_request(endpoint, params)
         return response.json()
 
@@ -226,7 +245,10 @@ def scanAllGames():
     print('\nSelected bookmakers:')
     for bookie in selected:
         print(f"- {bookie}")
-    
+
+    # Convert display names to API keys for the API call
+    bookmaker_api_keys = ','.join([BOOKMAKER_API_KEYS[b] for b in selected])
+
     client=APIClient()
     sports=client.getSports()
     active_sports=[
@@ -242,7 +264,7 @@ def scanAllGames():
             eventsK=client.getEvents(sportKey=sport_Key)
             for key in eventsK:
                 event_id=key['id']
-                event_odds_data = client.getEventOdds(sportKey=sport_Key, eventId=event_id)
+                event_odds_data = client.getEventOdds(sportKey=sport_Key, eventId=event_id, bookmakers=bookmaker_api_keys)
                 l=''
                 if sport_Key=='americanfootball_nfl' or sport_Key=='americanfootball_ncaaf' or sport_Key=='americanfootball_cfl':
                     l=americanFootballMarkets.split(',')
@@ -319,7 +341,7 @@ def scanAllGames():
                             }
                             all_opportunities.append(opportunity)
 
-            odds_data=client.getSportsOdds(sport_key=sport_Key)
+            odds_data=client.getSportsOdds(sport_key=sport_Key, bookmakers=bookmaker_api_keys)
             for event in odds_data:
 
                 oddsDict = {
