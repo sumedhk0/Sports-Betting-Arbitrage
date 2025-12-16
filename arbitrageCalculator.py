@@ -223,7 +223,9 @@ def scanAllGames():
                 continue
             break
     
-    
+    print('\nSelected bookmakers:')
+    for bookie in selected:
+        print(f"- {bookie}")
     
     client=APIClient()
     sports=client.getSports()
@@ -362,16 +364,10 @@ def scanAllGames():
                 # Skip events that don't meet time filtering criteria
                 if not event_info['is_valid_time']:
                     continue
-                flag=True
+                
                 for market_key, market_data in oddsDict.items():
                     result = analyzeMarketArbitrage(market_data, market_key)
-                    if result:
-                        for bookie in result['bookmakers']:
-                            if bookie not in selected:
-                                flag=False
-                    if not flag:
-                        flag=True
-                        continue
+                    
                     if result and result['roi'] > 0:
                         opportunities_dict = {}
                         for i, outcome in enumerate(result['outcomes']):
