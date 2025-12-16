@@ -37,6 +37,7 @@ Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) to be
 
 **Using Docker Compose:**
 ```bash
+docker-compose build arbitrage
 docker-compose run arbitrage
 ```
 
