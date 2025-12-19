@@ -8,10 +8,37 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
 import questionary
+from rich.live import Live
+from rich.text import Text
+from rich.console import Console
 
 class APIKeysExhaustedException(Exception):
     """Raised when all API keys have been exhausted"""
     pass
+
+
+class StatusDisplay:
+    """Live status bar for API credits display"""
+    def __init__(self, total_keys):
+        self.total_keys = total_keys
+        self.current_key = 1
+        self.credits = "..."
+        self.sport = ""
+        self.live = None
+
+    def update(self, key_index=None, credits=None, sport=None):
+        if key_index is not None:
+            self.current_key = key_index + 1
+        if credits is not None:
+            self.credits = credits
+        if sport is not None:
+            self.sport = sport
+        if self.live:
+            self.live.update(self.render())
+
+    def render(self):
+        return Text(f"API Key {self.current_key}/{self.total_keys} | Credits: {self.credits} | Scanning: {self.sport}")
+
 
 americanFootballMarkets='player_assists,player_defensive_interceptions,player_field_goals,player_kicking_points,player_pass_attempts,player_pass_completions,player_pass_interceptions,player_pass_longest_completion,player_pass_rush_yds,player_pass_rush_reception_tds,player_pass_rush_reception_yds,player_pass_tds,player_pass_yds,player_pass_yds_q1,player_pats,player_receptions,player_reception_longest,player_reception_tds,player_reception_yds,player_rush_attempts,player_rush_longest,player_rush_reception_tds,player_rush_reception_yds,player_rush_tds,player_rush_yds,player_sacks,player_solo_tackles,player_tackles_assists'
 basketballMarkets='player_points,player_points_q1,player_rebounds,player_rebounds_q1,player_assists,player_assists_q1,player_threes,player_blocks,player_steals,player_blocks_steals,player_turnovers,player_points_rebounds_assists,player_points_rebounds,player_points_assists,player_rebounds_assists,player_field_goals,player_frees_made,player_frees_attempts'
@@ -33,7 +60,7 @@ BOOKMAKER_API_KEYS = {
 }
 
 class APIClient:
-    def __init__(self):
+    def __init__(self, status_display=None):
         load_dotenv()
         # Load multiple API keys (comma-separated) or fall back to single key
         api_keys_str = os.getenv('API_KEYS', '')
@@ -50,6 +77,7 @@ class APIClient:
         self.current_key_index = 0
         self.session = requests.Session()
         self.baseURL = 'https://api.the-odds-api.com/v4/'
+        self.status_display = status_display
         print(f"Loaded {len(self.api_keys)} API key(s)")
 
     def _rotate_key(self):
@@ -67,19 +95,18 @@ class APIClient:
                 response = self.session.get(endpoint, params=params)
 
                 if response.status_code == 429:
-                    print(f"[Key {self.current_key_index + 1}] Rate limit hit")
                     self._rotate_key()
                     continue
 
                 if response.status_code == 401:
-                    print(f"[Key {self.current_key_index + 1}] Quota exhausted or invalid key")
                     self._rotate_key()
                     continue
 
                 response.raise_for_status()
 
                 remaining = response.headers.get('x-requests-remaining', 'unknown')
-                print(f"[Key {self.current_key_index + 1}/{len(self.api_keys)}] Requests remaining: {remaining}")
+                if self.status_display:
+                    self.status_display.update(key_index=self.current_key_index, credits=remaining)
 
                 return response
 
@@ -252,79 +279,161 @@ def scanAllGames():
     # Convert display names to API keys for the API call
     bookmaker_api_keys = ','.join([BOOKMAKER_API_KEYS[b] for b in selected])
 
-    client=APIClient()
-    sports=client.getSports()
-    active_sports=[
+    # Initialize status display and client
+    load_dotenv()
+    api_keys_str = os.getenv('API_KEYS', '')
+    if api_keys_str:
+        num_keys = len([k.strip() for k in api_keys_str.split(',') if k.strip()])
+    else:
+        num_keys = 1 if os.getenv('API_KEY', '') else 0
+
+    status = StatusDisplay(num_keys)
+    client = APIClient(status_display=status)
+    sports = client.getSports()
+    active_sports = [
         sport for sport in sports
         if '_winner' not in sport['key'].lower() and sport.get('active', True)
     ]
 
     all_opportunities = []
 
-    try:
-        for sport in active_sports:
-            sport_Key=sport['key']
-            eventsK=client.getEvents(sportKey=sport_Key)
-            for key in eventsK:
-                event_id=key['id']
-                event_odds_data = client.getEventOdds(sportKey=sport_Key, eventId=event_id, bookmakers=bookmaker_api_keys)
-                l=''
-                if sport_Key=='americanfootball_nfl' or sport_Key=='americanfootball_ncaaf' or sport_Key=='americanfootball_cfl':
-                    l=americanFootballMarkets.split(',')
-                elif sport_Key=='basketball_nba' or sport_Key=='basketball_ncaab' or sport_Key=='basketball_wbna':
-                    l=basketballMarkets.split(',')
-                elif sport_Key=='baseball_mlb':
-                    l=baseballMarkets.split(',')
-                elif sport_Key=='icehockey_nhl':
-                    l=iceHockeyMarkets.split(',')
-                elif sport_Key=='aussierules_afl':
-                    l=aussieRulesMarkets.split(',')
-                elif sport_Key=='soccer_epl' or sport_Key=='soccer_france_ligue_one' or sport_Key=='soccer_germany_bundesliga' or sport_Key=='soccer_italy_serie_a' or sport_Key=='soccer_spain_la_liga' or sport_Key=='soccer_usa_mls':
-                    l=soccerMarkets.split(',')
-                odds_dictionary={ke: {} for ke in l} if l else {}
-                unpaired_odds_dict={ke: {} for ke in l} if l else {}
-            
-                for bookmaker in event_odds_data.get('bookmakers', []):
-                    for market in bookmaker['markets']:
-                        market_key=market['key']
-                        for outcome in market['outcomes']:
-                            
-                            if 'description' not in outcome:
-                                break
-                            outcome_name=outcome['name']
-                            outcome_odds=outcome['price']
-                            outcome_description=outcome['description']
-                            outcome_point=outcome.get('point',None)
-                            bookmaker_name = bookmaker.get('title', bookmaker.get('key', 'Unknown'))
-                            player_key = f"{outcome_description}|||{outcome_point}"
+    print(f"\nScanning {len(active_sports)} active sports...\n")
 
-                            if market_key not in odds_dictionary:
-                                odds_dictionary[market_key] = {}
-                            if player_key not in odds_dictionary[market_key]:
-                                odds_dictionary[market_key][player_key] = {}
+    with Live(status.render(), refresh_per_second=4, transient=True) as live:
+        status.live = live
+        try:
+            for sport in active_sports:
+                sport_Key = sport['key']
+                status.update(sport=sport_Key)
+                eventsK = client.getEvents(sportKey=sport_Key)
+                for key in eventsK:
+                    event_id=key['id']
+                    event_odds_data = client.getEventOdds(sportKey=sport_Key, eventId=event_id, bookmakers=bookmaker_api_keys)
+                    l=''
+                    if sport_Key=='americanfootball_nfl' or sport_Key=='americanfootball_ncaaf' or sport_Key=='americanfootball_cfl':
+                        l=americanFootballMarkets.split(',')
+                    elif sport_Key=='basketball_nba' or sport_Key=='basketball_ncaab' or sport_Key=='basketball_wbna':
+                        l=basketballMarkets.split(',')
+                    elif sport_Key=='baseball_mlb':
+                        l=baseballMarkets.split(',')
+                    elif sport_Key=='icehockey_nhl':
+                        l=iceHockeyMarkets.split(',')
+                    elif sport_Key=='aussierules_afl':
+                        l=aussieRulesMarkets.split(',')
+                    elif sport_Key=='soccer_epl' or sport_Key=='soccer_france_ligue_one' or sport_Key=='soccer_germany_bundesliga' or sport_Key=='soccer_italy_serie_a' or sport_Key=='soccer_spain_la_liga' or sport_Key=='soccer_usa_mls':
+                        l=soccerMarkets.split(',')
+                    odds_dictionary={ke: {} for ke in l} if l else {}
+                    unpaired_odds_dict={ke: {} for ke in l} if l else {}
 
-                            odds_dictionary[market_key][player_key][bookmaker_name] = {
-                                'over/under': outcome_name,
-                                'odds': outcome_odds,
-                                'player_name': outcome_description,
-                                'point': outcome_point
-                            }
+                    for bookmaker in event_odds_data.get('bookmakers', []):
+                        for market in bookmaker['markets']:
+                            market_key=market['key']
+                            for outcome in market['outcomes']:
 
-                commense_time_iso=key.get('commence_time',None)
-                is_valid_time, formatted_time = parse_and_filter_event_time(commense_time_iso)
-                event_info={
-                    'home_team': key['home_team'],
-                    'away_team': key['away_team'],
-                    'sport': sport_Key,
-                    'commence_time': formatted_time,
-                    'is_valid_time': is_valid_time
-                }
-                if not event_info['is_valid_time']:
-                    continue
+                                if 'description' not in outcome:
+                                    break
+                                outcome_name=outcome['name']
+                                outcome_odds=outcome['price']
+                                outcome_description=outcome['description']
+                                outcome_point=outcome.get('point',None)
+                                bookmaker_name = bookmaker.get('title', bookmaker.get('key', 'Unknown'))
+                                player_key = f"{outcome_description}|||{outcome_point}"
 
-                for market_key, market_data in odds_dictionary.items():
-                    for player_key, player_props in market_data.items():
-                        result = analyzePlayerPropArbitrage(player_props)
+                                if market_key not in odds_dictionary:
+                                    odds_dictionary[market_key] = {}
+                                if player_key not in odds_dictionary[market_key]:
+                                    odds_dictionary[market_key][player_key] = {}
+
+                                odds_dictionary[market_key][player_key][bookmaker_name] = {
+                                    'over/under': outcome_name,
+                                    'odds': outcome_odds,
+                                    'player_name': outcome_description,
+                                    'point': outcome_point
+                                }
+
+                    commense_time_iso=key.get('commence_time',None)
+                    is_valid_time, formatted_time = parse_and_filter_event_time(commense_time_iso)
+                    event_info={
+                        'home_team': key['home_team'],
+                        'away_team': key['away_team'],
+                        'sport': sport_Key,
+                        'commence_time': formatted_time,
+                        'is_valid_time': is_valid_time
+                    }
+                    if not event_info['is_valid_time']:
+                        continue
+
+                    for market_key, market_data in odds_dictionary.items():
+                        for player_key, player_props in market_data.items():
+                            result = analyzePlayerPropArbitrage(player_props)
+                            if result and result['roi'] > 0:
+                                opportunities_dict = {}
+                                for i, outcome in enumerate(result['outcomes']):
+                                    opportunities_dict[outcome] = {
+                                        'bookmaker': result['bookmakers'][i],
+                                        'odds': result['odds'][i],
+                                        'bet_percentage': result['bet_percentages'][i],
+                                        'bet_amount_1000': result['bet_amounts_1000'][i]
+                                    }
+                                opportunity = {
+                                    'event': f"{event_info['home_team']} vs {event_info['away_team']}",
+                                    'sport': event_info['sport'],
+                                    'market': f"{market_key} - {result.get('player_name', 'Unknown')}",
+                                    'roi': result['roi'],
+                                    'commence_time': event_info['commence_time'],
+                                    'opportunities': opportunities_dict
+                                }
+                                all_opportunities.append(opportunity)
+
+                odds_data=client.getSportsOdds(sport_key=sport_Key, bookmakers=bookmaker_api_keys)
+                for event in odds_data:
+
+                    oddsDict = {
+                        'h2h': {},
+                        'spreads': {},
+                        'totals': {}
+                    }
+
+                    for bookmaker in event['bookmakers']:
+                        for market in bookmaker['markets']:
+                            market_key = market['key']
+
+                            for outcome in market['outcomes']:
+                                outcome_name = outcome['name']
+                                odds = outcome['price']
+
+                                point = outcome.get('point', None)
+
+                                if market_key in oddsDict:
+                                    if outcome_name not in oddsDict[market_key]:
+                                        oddsDict[market_key][outcome_name] = []
+
+                                    if point is not None:
+                                        oddsDict[market_key][outcome_name].append((bookmaker['title'], odds, point))
+                                    else:
+                                        oddsDict[market_key][outcome_name].append((bookmaker['title'], odds))
+
+                    # Extract commence_time from API response
+                    commence_time_iso = event.get('commence_time', None)
+
+                    # Parse, filter, and format the time
+                    is_valid_time, formatted_time = parse_and_filter_event_time(commence_time_iso)
+
+                    event_info = {
+                        'home_team': event['home_team'],
+                        'away_team': event['away_team'],
+                        'sport': sport_Key,
+                        'commence_time': formatted_time,
+                        'is_valid_time': is_valid_time
+                    }
+
+                    # Skip events that don't meet time filtering criteria
+                    if not event_info['is_valid_time']:
+                        continue
+
+                    for market_key, market_data in oddsDict.items():
+                        result = analyzeMarketArbitrage(market_data, market_key)
+
                         if result and result['roi'] > 0:
                             opportunities_dict = {}
                             for i, outcome in enumerate(result['outcomes']):
@@ -334,87 +443,19 @@ def scanAllGames():
                                     'bet_percentage': result['bet_percentages'][i],
                                     'bet_amount_1000': result['bet_amounts_1000'][i]
                                 }
+
                             opportunity = {
                                 'event': f"{event_info['home_team']} vs {event_info['away_team']}",
                                 'sport': event_info['sport'],
-                                'market': f"{market_key} - {result.get('player_name', 'Unknown')}",
+                                'market': market_key,
                                 'roi': result['roi'],
                                 'commence_time': event_info['commence_time'],
                                 'opportunities': opportunities_dict
                             }
                             all_opportunities.append(opportunity)
 
-            odds_data=client.getSportsOdds(sport_key=sport_Key, bookmakers=bookmaker_api_keys)
-            for event in odds_data:
-
-                oddsDict = {
-                    'h2h': {},
-                    'spreads': {},
-                    'totals': {}
-                }
-
-                for bookmaker in event['bookmakers']:
-                    for market in bookmaker['markets']:
-                        market_key = market['key']
-
-                        for outcome in market['outcomes']:
-                            outcome_name = outcome['name']
-                            odds = outcome['price']
-
-                            point = outcome.get('point', None)
-
-                            if market_key in oddsDict:
-                                if outcome_name not in oddsDict[market_key]:
-                                    oddsDict[market_key][outcome_name] = []
-
-                                if point is not None:
-                                    oddsDict[market_key][outcome_name].append((bookmaker['title'], odds, point))
-                                else:
-                                    oddsDict[market_key][outcome_name].append((bookmaker['title'], odds))
-
-                # Extract commence_time from API response
-                commence_time_iso = event.get('commence_time', None)
-
-                # Parse, filter, and format the time
-                is_valid_time, formatted_time = parse_and_filter_event_time(commence_time_iso)
-
-                event_info = {
-                    'home_team': event['home_team'],
-                    'away_team': event['away_team'],
-                    'sport': sport_Key,
-                    'commence_time': formatted_time,
-                    'is_valid_time': is_valid_time
-                }
-
-                # Skip events that don't meet time filtering criteria
-                if not event_info['is_valid_time']:
-                    continue
-                
-                for market_key, market_data in oddsDict.items():
-                    result = analyzeMarketArbitrage(market_data, market_key)
-                    
-                    if result and result['roi'] > 0:
-                        opportunities_dict = {}
-                        for i, outcome in enumerate(result['outcomes']):
-                            opportunities_dict[outcome] = {
-                                'bookmaker': result['bookmakers'][i],
-                                'odds': result['odds'][i],
-                                'bet_percentage': result['bet_percentages'][i],
-                                'bet_amount_1000': result['bet_amounts_1000'][i]
-                            }
-
-                        opportunity = {
-                            'event': f"{event_info['home_team']} vs {event_info['away_team']}",
-                            'sport': event_info['sport'],
-                            'market': market_key,
-                            'roi': result['roi'],
-                            'commence_time': event_info['commence_time'],
-                            'opportunities': opportunities_dict
-                        }
-                        all_opportunities.append(opportunity)
-
-    except APIKeysExhaustedException:
-        print(f"\n[!] API keys exhausted. Stopping scan and showing results found so far...")
+        except APIKeysExhaustedException:
+            print(f"\n[!] API keys exhausted. Stopping scan and showing results found so far...")
 
     all_opportunities.sort(key=lambda x: x['roi'], reverse=True)
     if numOpps > len(all_opportunities):
