@@ -30,7 +30,7 @@ export function getRoiColor(roi: number): string {
 }
 
 export function getRoiBgColor(roi: number): string {
-  if (roi >= 2) return 'bg-purple-100 dark:bg-purple-900/30';
-  if (roi >= 1) return 'bg-blue-100 dark:bg-blue-900/30';
+  if (roi >= 2) return 'bg-black-100 dark:bg-black-900/30';
+  if (roi >= 1) return 'bg-yellow-100 dark:bg-yellow-900/30';
   return 'bg-orange-100 dark:bg-orange-900/30';
 }
