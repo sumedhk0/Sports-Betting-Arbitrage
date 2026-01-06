@@ -32,7 +32,7 @@ class ArbitrageAgent:
 
         decimal_odds = [american_to_decimal(odds) for odds in odds_list]
         inverse_sum = sum(1/odds for odds in decimal_odds)
-        roi = (1 - inverse_sum) * 100
+        roi = ((1 / inverse_sum) - 1) * 100
         bet_percentages = [(1/odds) / inverse_sum * 100 for odds in decimal_odds]
         bet_amounts_1000 = [pct * 10 for pct in bet_percentages]
 
