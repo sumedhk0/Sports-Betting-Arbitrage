@@ -24,9 +24,9 @@ export function formatCurrency(value: number): string {
 }
 
 export function getRoiColor(roi: number): string {
-  if (roi >= 2) return 'text-green-600 dark:text-green-400';
-  if (roi >= 1) return 'text-yellow-600 dark:text-yellow-400';
-  return 'text-orange-600 dark:text-orange-400';
+  if (roi >= 2) return 'text-green-500 dark:text-green-400';
+  if (roi >= 1) return 'text-yellow-500 dark:text-yellow-400';
+  return 'text-orange-500 dark:text-orange-400';
 }
 
 export function getRoiBgColor(roi: number): string {
