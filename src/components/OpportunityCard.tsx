@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronDown, ChevronUp, Clock, DollarSign } from 'lucide-react';
-import { formatOdds, formatCurrency, getRoiColor, getRoiBgColor } from '@/lib/utils';
+import { formatOdds, formatCurrency, getRoiColor } from '@/lib/utils';
 import type { Opportunity } from '@/lib/types';
 
 interface OpportunityCardProps {
@@ -46,7 +46,7 @@ export function OpportunityCard({ opportunity, rank }: OpportunityCardProps) {
 
           <div className="flex items-center gap-3">
             <Badge
-              className={`${getRoiBgColor(opportunity.roi)} ${getRoiColor(opportunity.roi)} border-0 text-base px-3 py-1`}
+              className={`${getRoiColor(opportunity.roi)} border-0 text-base px-3 py-1`}
             >
               +{opportunity.roi.toFixed(2)}% ROI
             </Badge>
