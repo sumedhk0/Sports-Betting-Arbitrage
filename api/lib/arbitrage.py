@@ -77,12 +77,50 @@ def parse_and_filter_event_time(commence_time_iso: str, minutes_buffer: int = 10
         return False, "Time unavailable"
 
 
-def analyze_player_prop_arbitrage(player_props: Dict) -> Optional[Dict]:
+def build_player_prop_odds(bookmakers: List[Dict], market_list: List[str]) -> Dict:
     """
-    Analyze player prop market for arbitrage opportunities.
+    Collect player prop prices from an event-odds response.
 
     Args:
-        player_props: Dict of bookmaker data with over/under odds
+        bookmakers: The 'bookmakers' list of The Odds API event odds payload
+        market_list: Player prop market keys to collect; others are ignored
+
+    Returns:
+        {market_key: {"<player>|||<point>": [entry, ...]}} where each entry
+        is {'bookmaker', 'over/under', 'odds', 'player_name', 'point'}.
+        There is one entry per (bookmaker, side), so a book's Over and
+        Under prices both survive.
+    """
+    props = {market_key: {} for market_key in market_list}
+
+    for bookmaker in bookmakers:
+        bookmaker_name = bookmaker.get('title', bookmaker.get('key', 'Unknown'))
+        for market in bookmaker.get('markets', []):
+            market_key = market['key']
+            if market_key not in props:
+                continue
+            for outcome in market.get('outcomes', []):
+                if 'description' not in outcome:
+                    continue
+                point = outcome.get('point')
+                player_key = f"{outcome['description']}|||{point}"
+                props[market_key].setdefault(player_key, []).append({
+                    'bookmaker': bookmaker_name,
+                    'over/under': outcome['name'],
+                    'odds': outcome['price'],
+                    'player_name': outcome['description'],
+                    'point': point,
+                })
+
+    return props
+
+
+def analyze_player_prop_arbitrage(player_props: List[Dict]) -> Optional[Dict]:
+    """
+    Analyze one player prop line (a player at a point) for arbitrage.
+
+    Args:
+        player_props: Entries from build_player_prop_odds for a single line
 
     Returns:
         Dict with arbitrage details or None if no opportunity
@@ -95,10 +133,11 @@ def analyze_player_prop_arbitrage(player_props: Dict) -> Optional[Dict]:
     player_name = None
     point = None
 
-    for bookmaker, data in player_props.items():
+    for data in player_props:
+        bookmaker = data['bookmaker']
         if data['over/under'] == 'Over':
             over_odds.append((bookmaker, data['odds']))
-        else:
+        elif data['over/under'] == 'Under':
             under_odds.append((bookmaker, data['odds']))
         player_name = data.get('player_name')
         point = data.get('point')

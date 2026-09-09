@@ -322,34 +322,9 @@ def scanAllGames():
                         l=aussieRulesMarkets.split(',')
                     elif sport_Key=='soccer_epl' or sport_Key=='soccer_france_ligue_one' or sport_Key=='soccer_germany_bundesliga' or sport_Key=='soccer_italy_serie_a' or sport_Key=='soccer_spain_la_liga' or sport_Key=='soccer_usa_mls':
                         l=soccerMarkets.split(',')
-                    odds_dictionary={ke: {} for ke in l} if l else {}
-                    unpaired_odds_dict={ke: {} for ke in l} if l else {}
-
-                    for bookmaker in event_odds_data.get('bookmakers', []):
-                        for market in bookmaker['markets']:
-                            market_key=market['key']
-                            for outcome in market['outcomes']:
-
-                                if 'description' not in outcome:
-                                    break
-                                outcome_name=outcome['name']
-                                outcome_odds=outcome['price']
-                                outcome_description=outcome['description']
-                                outcome_point=outcome.get('point',None)
-                                bookmaker_name = bookmaker.get('title', bookmaker.get('key', 'Unknown'))
-                                player_key = f"{outcome_description}|||{outcome_point}"
-
-                                if market_key not in odds_dictionary:
-                                    odds_dictionary[market_key] = {}
-                                if player_key not in odds_dictionary[market_key]:
-                                    odds_dictionary[market_key][player_key] = {}
-
-                                odds_dictionary[market_key][player_key][bookmaker_name] = {
-                                    'over/under': outcome_name,
-                                    'odds': outcome_odds,
-                                    'player_name': outcome_description,
-                                    'point': outcome_point
-                                }
+                    odds_dictionary = buildPlayerPropOdds(
+                        event_odds_data.get('bookmakers', []), l if l else []
+                    )
 
                     commense_time_iso=key.get('commence_time',None)
                     is_valid_time, formatted_time = parse_and_filter_event_time(commense_time_iso)
@@ -488,7 +463,38 @@ def scanAllGames():
 
     return top_3
 
+def buildPlayerPropOdds(bookmakers, market_list):
+    """Collect player prop prices from an event-odds response.
+
+    Returns {market_key: {"<player>|||<point>": [entry, ...]}} with one entry
+    per (bookmaker, side), so a book's Over and Under prices both survive.
+    """
+    props = {market_key: {} for market_key in market_list}
+
+    for bookmaker in bookmakers:
+        bookmaker_name = bookmaker.get('title', bookmaker.get('key', 'Unknown'))
+        for market in bookmaker.get('markets', []):
+            market_key = market['key']
+            if market_key not in props:
+                continue
+            for outcome in market.get('outcomes', []):
+                if 'description' not in outcome:
+                    continue
+                point = outcome.get('point')
+                player_key = f"{outcome['description']}|||{point}"
+                props[market_key].setdefault(player_key, []).append({
+                    'bookmaker': bookmaker_name,
+                    'over/under': outcome['name'],
+                    'odds': outcome['price'],
+                    'player_name': outcome['description'],
+                    'point': point,
+                })
+
+    return props
+
+
 def analyzePlayerPropArbitrage(player_props):
+    """Analyze one player prop line (entries from buildPlayerPropOdds)."""
     if not player_props:
         return None
 
@@ -497,10 +503,11 @@ def analyzePlayerPropArbitrage(player_props):
     player_name = None
     point = None
 
-    for bookmaker, data in player_props.items():
+    for data in player_props:
+        bookmaker = data['bookmaker']
         if data['over/under'] == 'Over':
             over_odds.append((bookmaker, data['odds']))
-        else:
+        elif data['over/under'] == 'Under':
             under_odds.append((bookmaker, data['odds']))
         player_name = data.get('player_name')
         point = data.get('point')
