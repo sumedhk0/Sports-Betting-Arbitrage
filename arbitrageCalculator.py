@@ -644,13 +644,16 @@ def testEvents():
          
 
 class ArbitrageAgent():
-    def findArbitrage(odds1,odds2,odds3=None):
+    def findArbitrage(*american_odds):
+        """One American price per outcome. Pass every outcome of the market."""
         def american_to_decimal(american_odds):
             if american_odds > 0:
                 return (american_odds / 100) + 1
             else:
                 return (100 / abs(american_odds)) + 1
-        decimal_odds=[american_to_decimal(odds) for odds in [odds1,odds2,odds3] if odds is not None]
+        if len(american_odds) < 2:
+            raise ValueError("findArbitrage needs at least two outcomes")
+        decimal_odds=[american_to_decimal(odds) for odds in american_odds]
         inverse_sum=sum(1/odds for odds in decimal_odds)
         roi=(1 - inverse_sum) * 100
         bet_percentages=[(1/odds) / inverse_sum * 100 for odds in decimal_odds]

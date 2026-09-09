@@ -8,14 +8,14 @@ class ArbitrageAgent:
     """Static class for calculating arbitrage opportunities."""
 
     @staticmethod
-    def find_arbitrage(odds1: float, odds2: float, odds3: float = None) -> Dict:
+    def find_arbitrage(*american_odds: float) -> Dict:
         """
         Calculate arbitrage opportunity from American odds.
 
         Args:
-            odds1: First outcome American odds
-            odds2: Second outcome American odds
-            odds3: Optional third outcome American odds (for 3-way markets)
+            *american_odds: One American price per outcome. The caller must
+                pass every outcome of the market (2 for h2h/spreads/totals,
+                3 for three-way h2h, ...) or the ROI is meaningless.
 
         Returns:
             Dict with roi, bet_percentages, and bet_amounts_1000
@@ -26,11 +26,10 @@ class ArbitrageAgent:
             else:
                 return (100 / abs(american_odds)) + 1
 
-        odds_list = [odds1, odds2]
-        if odds3 is not None:
-            odds_list.append(odds3)
+        if len(american_odds) < 2:
+            raise ValueError("find_arbitrage needs at least two outcomes")
 
-        decimal_odds = [american_to_decimal(odds) for odds in odds_list]
+        decimal_odds = [american_to_decimal(odds) for odds in american_odds]
         inverse_sum = sum(1/odds for odds in decimal_odds)
         roi = ((1 / inverse_sum) - 1) * 100
         bet_percentages = [(1/odds) / inverse_sum * 100 for odds in decimal_odds]
@@ -173,7 +172,7 @@ def analyze_market_arbitrage(market_data: Dict, market_key: str) -> Optional[Dic
                 outcome_names.append(f"{outcome} {point}")
 
             if len(best_odds) >= 2:
-                arb_result = ArbitrageAgent.find_arbitrage(*best_odds[:3])
+                arb_result = ArbitrageAgent.find_arbitrage(*best_odds)
                 if arb_result['roi'] > best_roi:
                     best_roi = arb_result['roi']
                     best_result = {
@@ -204,7 +203,7 @@ def analyze_market_arbitrage(market_data: Dict, market_key: str) -> Optional[Dic
         if len(best_odds) < 2:
             return None
 
-        arb_result = ArbitrageAgent.find_arbitrage(*best_odds[:3])
+        arb_result = ArbitrageAgent.find_arbitrage(*best_odds)
         return {
             'roi': arb_result['roi'],
             'bookmakers': bookmakers_used,
