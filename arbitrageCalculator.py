@@ -674,7 +674,9 @@ class ArbitrageAgent():
             raise ValueError("findArbitrage needs at least two outcomes")
         decimal_odds=[american_to_decimal(odds) for odds in american_odds]
         inverse_sum=sum(1/odds for odds in decimal_odds)
-        roi=(1 - inverse_sum) * 100
+        # Profit per unit staked. Splitting the stake by implied probability
+        # pays stake/inverse_sum whichever outcome wins.
+        roi=((1 / inverse_sum) - 1) * 100
         bet_percentages=[(1/odds) / inverse_sum * 100 for odds in decimal_odds]
         bet_amounts_1000=[pct * 10 for pct in bet_percentages]
         return {
