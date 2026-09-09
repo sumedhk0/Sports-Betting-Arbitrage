@@ -322,34 +322,9 @@ def scanAllGames():
                         l=aussieRulesMarkets.split(',')
                     elif sport_Key=='soccer_epl' or sport_Key=='soccer_france_ligue_one' or sport_Key=='soccer_germany_bundesliga' or sport_Key=='soccer_italy_serie_a' or sport_Key=='soccer_spain_la_liga' or sport_Key=='soccer_usa_mls':
                         l=soccerMarkets.split(',')
-                    odds_dictionary={ke: {} for ke in l} if l else {}
-                    unpaired_odds_dict={ke: {} for ke in l} if l else {}
-
-                    for bookmaker in event_odds_data.get('bookmakers', []):
-                        for market in bookmaker['markets']:
-                            market_key=market['key']
-                            for outcome in market['outcomes']:
-
-                                if 'description' not in outcome:
-                                    break
-                                outcome_name=outcome['name']
-                                outcome_odds=outcome['price']
-                                outcome_description=outcome['description']
-                                outcome_point=outcome.get('point',None)
-                                bookmaker_name = bookmaker.get('title', bookmaker.get('key', 'Unknown'))
-                                player_key = f"{outcome_description}|||{outcome_point}"
-
-                                if market_key not in odds_dictionary:
-                                    odds_dictionary[market_key] = {}
-                                if player_key not in odds_dictionary[market_key]:
-                                    odds_dictionary[market_key][player_key] = {}
-
-                                odds_dictionary[market_key][player_key][bookmaker_name] = {
-                                    'over/under': outcome_name,
-                                    'odds': outcome_odds,
-                                    'player_name': outcome_description,
-                                    'point': outcome_point
-                                }
+                    odds_dictionary = buildPlayerPropOdds(
+                        event_odds_data.get('bookmakers', []), l if l else []
+                    )
 
                     commense_time_iso=key.get('commence_time',None)
                     is_valid_time, formatted_time = parse_and_filter_event_time(commense_time_iso)
@@ -488,7 +463,38 @@ def scanAllGames():
 
     return top_3
 
+def buildPlayerPropOdds(bookmakers, market_list):
+    """Collect player prop prices from an event-odds response.
+
+    Returns {market_key: {"<player>|||<point>": [entry, ...]}} with one entry
+    per (bookmaker, side), so a book's Over and Under prices both survive.
+    """
+    props = {market_key: {} for market_key in market_list}
+
+    for bookmaker in bookmakers:
+        bookmaker_name = bookmaker.get('title', bookmaker.get('key', 'Unknown'))
+        for market in bookmaker.get('markets', []):
+            market_key = market['key']
+            if market_key not in props:
+                continue
+            for outcome in market.get('outcomes', []):
+                if 'description' not in outcome:
+                    continue
+                point = outcome.get('point')
+                player_key = f"{outcome['description']}|||{point}"
+                props[market_key].setdefault(player_key, []).append({
+                    'bookmaker': bookmaker_name,
+                    'over/under': outcome['name'],
+                    'odds': outcome['price'],
+                    'player_name': outcome['description'],
+                    'point': point,
+                })
+
+    return props
+
+
 def analyzePlayerPropArbitrage(player_props):
+    """Analyze one player prop line (entries from buildPlayerPropOdds)."""
     if not player_props:
         return None
 
@@ -497,10 +503,11 @@ def analyzePlayerPropArbitrage(player_props):
     player_name = None
     point = None
 
-    for bookmaker, data in player_props.items():
+    for data in player_props:
+        bookmaker = data['bookmaker']
         if data['over/under'] == 'Over':
             over_odds.append((bookmaker, data['odds']))
-        else:
+        elif data['over/under'] == 'Under':
             under_odds.append((bookmaker, data['odds']))
         player_name = data.get('player_name')
         point = data.get('point')
@@ -533,20 +540,32 @@ def analyzeMarketArbitrage(market_data, market_key):
         return None
 
     if market_key in ['spreads', 'totals']:
-        point_groups = {}
+        # Group prices into lines where the outcomes are complementary, i.e.
+        # exactly one of them wins (pushes aside). An arbitrage must cover
+        # every possible result, so only such groups may be combined.
+        #   totals:  Over X pairs with Under X, so the line is X.
+        #   spreads: Team A -X pairs with Team B +X. Group by the point as
+        #            seen from one fixed reference team, so A -1.5 and B +1.5
+        #            land together while A -1.5 and B -1.5 (both lose on a
+        #            one-goal game) stay apart.
+        reference = min(market_data)
+        line_groups = {}
         for outcome, odds_list in market_data.items():
             for bookmaker, odds, point in odds_list:
-                if point not in point_groups:
-                    point_groups[point] = {}
-                if outcome not in point_groups[point]:
-                    point_groups[point][outcome] = []
-                point_groups[point][outcome].append((bookmaker, odds))
+                if market_key == 'spreads' and outcome != reference:
+                    line = -point
+                else:
+                    line = point
+                line_groups.setdefault(line, {}).setdefault(outcome, []).append(
+                    (bookmaker, odds, point)
+                )
 
         best_result = None
         best_roi = float('-inf')
 
-        for point, outcomes in point_groups.items():
-            if len(outcomes) < 2:
+        for outcomes in line_groups.values():
+            if len(outcomes) < len(market_data):
+                # Some outcome has no price at this line: no full coverage.
                 continue
 
             best_odds = []
@@ -554,23 +573,23 @@ def analyzeMarketArbitrage(market_data, market_key):
             outcome_names = []
 
             for outcome, odds_list in outcomes.items():
-                best_odd = max(odds_list, key=lambda x: x[1])
-                best_odds.append(best_odd[1])
-                bookmakers_used.append(best_odd[0])
-                outcome_names.append(f"{outcome} {point}")
+                bookmaker, odds, point = max(odds_list, key=lambda x: x[1])
+                sign = '+' if market_key == 'spreads' and point > 0 else ''
+                best_odds.append(odds)
+                bookmakers_used.append(bookmaker)
+                outcome_names.append(f"{outcome} {sign}{point}")
 
-            if len(best_odds) >= 2:
-                arb_result = ArbitrageAgent.findArbitrage(*best_odds)
-                if arb_result['roi'] > best_roi:
-                    best_roi = arb_result['roi']
-                    best_result = {
-                        'roi': arb_result['roi'],
-                        'bookmakers': bookmakers_used,
-                        'odds': best_odds,
-                        'outcomes': outcome_names,
-                        'bet_percentages': arb_result['bet_percentages'],
-                        'bet_amounts_1000': arb_result['bet_amounts_1000']
-                    }
+            arb_result = ArbitrageAgent.findArbitrage(*best_odds)
+            if arb_result['roi'] > best_roi:
+                best_roi = arb_result['roi']
+                best_result = {
+                    'roi': arb_result['roi'],
+                    'bookmakers': bookmakers_used,
+                    'odds': best_odds,
+                    'outcomes': outcome_names,
+                    'bet_percentages': arb_result['bet_percentages'],
+                    'bet_amounts_1000': arb_result['bet_amounts_1000']
+                }
 
         return best_result
 
@@ -644,15 +663,20 @@ def testEvents():
          
 
 class ArbitrageAgent():
-    def findArbitrage(odds1,odds2,odds3=None):
+    def findArbitrage(*american_odds):
+        """One American price per outcome. Pass every outcome of the market."""
         def american_to_decimal(american_odds):
             if american_odds > 0:
                 return (american_odds / 100) + 1
             else:
                 return (100 / abs(american_odds)) + 1
-        decimal_odds=[american_to_decimal(odds) for odds in [odds1,odds2,odds3] if odds is not None]
+        if len(american_odds) < 2:
+            raise ValueError("findArbitrage needs at least two outcomes")
+        decimal_odds=[american_to_decimal(odds) for odds in american_odds]
         inverse_sum=sum(1/odds for odds in decimal_odds)
-        roi=(1 - inverse_sum) * 100
+        # Profit per unit staked. Splitting the stake by implied probability
+        # pays stake/inverse_sum whichever outcome wins.
+        roi=((1 / inverse_sum) - 1) * 100
         bet_percentages=[(1/odds) / inverse_sum * 100 for odds in decimal_odds]
         bet_amounts_1000=[pct * 10 for pct in bet_percentages]
         return {

@@ -10,6 +10,7 @@ from flask import Flask, jsonify, request
 from lib.api_client import APIClient, APIError
 from lib.arbitrage import (
     parse_and_filter_event_time,
+    build_player_prop_odds,
     analyze_player_prop_arbitrage,
     analyze_market_arbitrage
 )
@@ -131,36 +132,10 @@ def scan():
                             sport_key, event_id, bookmakers_str
                         )
 
-                        market_list = prop_markets.split(',')
-                        props_dict = {m: {} for m in market_list}
-
-                        for bookmaker in props_result['data'].get('bookmakers', []):
-                            for market in bookmaker.get('markets', []):
-                                market_key = market['key']
-                                if market_key not in props_dict:
-                                    continue
-
-                                for outcome in market.get('outcomes', []):
-                                    if 'description' not in outcome:
-                                        continue
-
-                                    outcome_name = outcome['name']
-                                    outcome_odds = outcome['price']
-                                    outcome_description = outcome['description']
-                                    outcome_point = outcome.get('point')
-                                    bookmaker_name = bookmaker.get('title', bookmaker.get('key', 'Unknown'))
-
-                                    player_key = f"{outcome_description}|||{outcome_point}"
-
-                                    if player_key not in props_dict[market_key]:
-                                        props_dict[market_key][player_key] = {}
-
-                                    props_dict[market_key][player_key][bookmaker_name] = {
-                                        'over/under': outcome_name,
-                                        'odds': outcome_odds,
-                                        'player_name': outcome_description,
-                                        'point': outcome_point
-                                    }
+                        props_dict = build_player_prop_odds(
+                            props_result['data'].get('bookmakers', []),
+                            prop_markets.split(',')
+                        )
 
                         for market_key, market_data in props_dict.items():
                             for player_key, player_props in market_data.items():
