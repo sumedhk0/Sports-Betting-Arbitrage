@@ -140,25 +140,35 @@ def analyze_market_arbitrage(market_data: Dict, market_key: str) -> Optional[Dic
         return None
 
     if market_key in ['spreads', 'totals']:
-        # Group by point value
-        point_groups = {}
+        # Group prices into lines where the outcomes are complementary, i.e.
+        # exactly one of them wins (pushes aside). An arbitrage must cover
+        # every possible result, so only such groups may be combined.
+        #   totals:  Over X pairs with Under X, so the line is X.
+        #   spreads: Team A -X pairs with Team B +X. Group by the point as
+        #            seen from one fixed reference team, so A -1.5 and B +1.5
+        #            land together while A -1.5 and B -1.5 (both lose on a
+        #            one-goal game) stay apart.
+        reference = min(market_data)
+        line_groups = {}
         for outcome, odds_list in market_data.items():
             for item in odds_list:
-                if len(item) >= 3:
-                    bookmaker, odds, point = item[0], item[1], item[2]
-                else:
+                if len(item) < 3:
                     continue
-                if point not in point_groups:
-                    point_groups[point] = {}
-                if outcome not in point_groups[point]:
-                    point_groups[point][outcome] = []
-                point_groups[point][outcome].append((bookmaker, odds))
+                bookmaker, odds, point = item[0], item[1], item[2]
+                if market_key == 'spreads' and outcome != reference:
+                    line = -point
+                else:
+                    line = point
+                line_groups.setdefault(line, {}).setdefault(outcome, []).append(
+                    (bookmaker, odds, point)
+                )
 
         best_result = None
         best_roi = float('-inf')
 
-        for point, outcomes in point_groups.items():
-            if len(outcomes) < 2:
+        for outcomes in line_groups.values():
+            if len(outcomes) < len(market_data):
+                # Some outcome has no price at this line: no full coverage.
                 continue
 
             best_odds = []
@@ -166,23 +176,23 @@ def analyze_market_arbitrage(market_data: Dict, market_key: str) -> Optional[Dic
             outcome_names = []
 
             for outcome, odds_list in outcomes.items():
-                best_odd = max(odds_list, key=lambda x: x[1])
-                best_odds.append(best_odd[1])
-                bookmakers_used.append(best_odd[0])
-                outcome_names.append(f"{outcome} {point}")
+                bookmaker, odds, point = max(odds_list, key=lambda x: x[1])
+                sign = '+' if market_key == 'spreads' and point > 0 else ''
+                best_odds.append(odds)
+                bookmakers_used.append(bookmaker)
+                outcome_names.append(f"{outcome} {sign}{point}")
 
-            if len(best_odds) >= 2:
-                arb_result = ArbitrageAgent.find_arbitrage(*best_odds)
-                if arb_result['roi'] > best_roi:
-                    best_roi = arb_result['roi']
-                    best_result = {
-                        'roi': arb_result['roi'],
-                        'bookmakers': bookmakers_used,
-                        'odds': best_odds,
-                        'outcomes': outcome_names,
-                        'bet_percentages': arb_result['bet_percentages'],
-                        'bet_amounts_1000': arb_result['bet_amounts_1000']
-                    }
+            arb_result = ArbitrageAgent.find_arbitrage(*best_odds)
+            if arb_result['roi'] > best_roi:
+                best_roi = arb_result['roi']
+                best_result = {
+                    'roi': arb_result['roi'],
+                    'bookmakers': bookmakers_used,
+                    'odds': best_odds,
+                    'outcomes': outcome_names,
+                    'bet_percentages': arb_result['bet_percentages'],
+                    'bet_amounts_1000': arb_result['bet_amounts_1000']
+                }
 
         return best_result
 
